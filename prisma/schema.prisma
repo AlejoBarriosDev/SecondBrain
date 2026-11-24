@@ -1,0 +1,515 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ============================================================================
+// ENUMS (10)
+// ============================================================================
+
+enum ThemeMode {
+  DARK
+  LIGHT
+  SYSTEM
+}
+
+enum EntityType {
+  TRANSACTION
+  FINANCIAL_ACCOUNT
+  RECURRING_RULE
+  BUDGET
+  CATEGORY
+  EMAIL_IMPORT_ITEM
+}
+
+enum FinancialAccountType {
+  BANK
+  CASH
+  CREDIT_CARD
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+  TRANSFER
+}
+
+enum TransactionStatus {
+  POSTED
+  PENDING
+  VOID
+}
+
+enum TransferDirection {
+  OUT
+  IN
+}
+
+enum RecurrenceFrequency {
+  DAILY
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum EmailSyncStatus {
+  IDLE
+  SYNCING
+  ERROR
+  DISCONNECTED
+}
+
+enum EmailImportStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+}
+
+enum ParserSource {
+  RULES
+  LLM
+  HYBRID
+  FAILED
+}
+
+// ============================================================================
+// SHARED CORE — BETTERAUTH 1.7.28 + PASSKEY (5 Models)
+// ============================================================================
+
+model User {
+  id            String   @id @default(cuid())
+  name          String
+  email         String   @unique
+  emailVerified Boolean  @default(false)
+  image         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // BetterAuth relations (exact plural lowercase names for prisma-adapter joins)
+  sessions Session[]
+  accounts Account[]
+  passkeys Passkey[]
+
+  // Shared Core back-relations
+  settings      UserSettings?
+  moduleConfigs ModuleConfig[]
+  tags          Tag[]
+  entityTags    EntityTag[]
+  attachments   Attachment[]
+  entityLinks   EntityLink[]
+  auditLogs     AuditLog[]
+
+  // Finance Module back-relations
+  financialAccounts FinancialAccount[]
+  categories        Category[]
+  budgets           Budget[]
+  transactions      Transaction[]
+  recurringRules    RecurringRule[]
+  emailSyncStates   EmailSyncState[]
+  emailImportItems  EmailImportItem[]
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+model Passkey {
+  id           String    @id @default(cuid())
+  name         String?
+  publicKey    String
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  credentialID String    @unique
+  counter      Int
+  deviceType   String
+  backedUp     Boolean
+  transports   String?
+  createdAt    DateTime? @default(now())
+  aaguid       String?
+
+  @@index([userId])
+  @@map("passkey")
+}
+
+// ============================================================================
+// SHARED CORE — APPLICATION MODELS (7 Models)
+// ============================================================================
+
+model UserSettings {
+  id                  String    @id @default(cuid())
+  userId              String    @unique
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  defaultCurrency     String    @default("USD") @db.Char(3)
+  locale              String    @default("es-ES")
+  timezone            String    @default("UTC")
+  theme               ThemeMode @default(DARK)
+  fiscalMonthStartDay Int       @default(1)
+  aiParserEnabled     Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@map("user_settings")
+}
+
+model ModuleConfig {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  moduleKey String
+  enabled   Boolean  @default(true)
+  sortOrder Int      @default(0)
+  config    Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, moduleKey])
+  @@index([userId, sortOrder])
+  @@map("module_configs")
+}
+
+model Tag {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  color     String   @default("#6366f1")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entityTags EntityTag[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("tags")
+}
+
+model EntityTag {
+  id         String     @id @default(cuid())
+  userId     String
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tagId      String
+  tag        Tag        @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  entityType EntityType
+  entityId   String
+  createdAt  DateTime   @default(now())
+
+  @@unique([userId, tagId, entityType, entityId])
+  @@index([userId, entityType, entityId])
+  @@index([tagId])
+  @@map("entity_tags")
+}
+
+model Attachment {
+  id         String     @id @default(cuid())
+  userId     String
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entityType EntityType
+  entityId   String
+  fileName   String
+  mimeType   String
+  sizeBytes  Int
+  storageKey String
+  sha256     String?
+  createdAt  DateTime   @default(now())
+
+  @@index([userId, entityType, entityId])
+  @@map("attachments")
+}
+
+model EntityLink {
+  id           String     @id @default(cuid())
+  userId       String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceType   EntityType
+  sourceId     String
+  targetType   EntityType
+  targetId     String
+  relationType String
+  metadata     Json?
+  createdAt    DateTime   @default(now())
+
+  @@unique([userId, sourceType, sourceId, targetType, targetId, relationType])
+  @@index([userId, sourceType, sourceId])
+  @@index([userId, targetType, targetId])
+  @@map("entity_links")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action     String
+  entityType String
+  entityId   String
+  before     Json?
+  after      Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, entityType, entityId])
+  @@map("audit_logs")
+}
+
+// ============================================================================
+// FINANCE MODULE (7 Models — Strict Decimal(19, 4))
+// ============================================================================
+
+model FinancialAccount {
+  id                  String               @id @default(cuid())
+  userId              String
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name                String
+  type                FinancialAccountType
+  currency            String               @default("USD") @db.Char(3)
+  balance             Decimal              @default(0) @db.Decimal(19, 4)
+  creditLimit         Decimal?             @db.Decimal(19, 4)
+  statementClosingDay Int?
+  paymentDueDay       Int?
+  institution         String?
+  lastFour            String?
+  color               String?
+  icon                String?
+  isArchived          Boolean              @default(false)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  transactions             Transaction[]   @relation("TransactionAccount")
+  counterpartyTransactions Transaction[]   @relation("TransactionCounterparty")
+  recurringRules           RecurringRule[] @relation("RecurringAccount")
+  counterpartyRecurring    RecurringRule[] @relation("RecurringCounterparty")
+
+  @@index([userId, isArchived])
+  @@map("financial_accounts")
+}
+
+model Category {
+  id        String          @id @default(cuid())
+  userId    String
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  type      TransactionType
+  parentId  String?
+  parent    Category?       @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children  Category[]      @relation("CategoryHierarchy")
+  icon      String?
+  color     String?
+  isSystem  Boolean         @default(false)
+  sortOrder Int             @default(0)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  budgets        Budget[]
+  transactions   Transaction[]
+  recurringRules RecurringRule[]
+
+  @@unique([userId, name, type])
+  @@index([userId, type])
+  @@index([parentId])
+  @@map("categories")
+}
+
+model Budget {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  categoryId        String
+  category          Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  year              Int
+  month             Int
+  amount            Decimal  @db.Decimal(19, 4)
+  currency          String   @default("USD") @db.Char(3)
+  alertThresholdPct Int      @default(80)
+  rollover          Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([userId, categoryId, year, month])
+  @@index([userId, year, month])
+  @@map("budgets")
+}
+
+model Transaction {
+  id                    String             @id @default(cuid())
+  userId                String
+  user                  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId             String
+  account               FinancialAccount   @relation("TransactionAccount", fields: [accountId], references: [id], onDelete: Restrict)
+  categoryId            String?
+  category              Category?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  type                  TransactionType
+  amount                Decimal            @db.Decimal(19, 4)
+  currency              String             @db.Char(3)
+  occurredAt            DateTime
+  description           String
+  merchant              String?
+  notes                 String?
+  status                TransactionStatus  @default(POSTED)
+  transferGroupId       String?
+  transferDirection     TransferDirection?
+  counterpartyAccountId String?
+  counterpartyAccount   FinancialAccount?  @relation("TransactionCounterparty", fields: [counterpartyAccountId], references: [id], onDelete: SetNull)
+  exchangeRate          Decimal?           @db.Decimal(19, 8)
+  recurringRuleId       String?
+  recurringRule         RecurringRule?     @relation(fields: [recurringRuleId], references: [id], onDelete: SetNull)
+  emailImportItemId     String?            @unique
+  emailImportItem       EmailImportItem?   @relation(fields: [emailImportItemId], references: [id], onDelete: SetNull)
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  @@unique([transferGroupId, transferDirection])
+  @@index([userId, occurredAt(sort: Desc)])
+  @@index([userId, accountId, occurredAt(sort: Desc)])
+  @@index([userId, categoryId, occurredAt(sort: Desc)])
+  @@index([transferGroupId])
+  @@map("transactions")
+}
+
+model RecurringRule {
+  id                    String              @id @default(cuid())
+  userId                String
+  user                  User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name                  String
+  type                  TransactionType
+  amount                Decimal             @db.Decimal(19, 4)
+  currency              String              @db.Char(3)
+  accountId             String
+  account               FinancialAccount    @relation("RecurringAccount", fields: [accountId], references: [id], onDelete: Restrict)
+  counterpartyAccountId String?
+  counterpartyAccount   FinancialAccount?   @relation("RecurringCounterparty", fields: [counterpartyAccountId], references: [id], onDelete: SetNull)
+  categoryId            String?
+  category              Category?           @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  frequency             RecurrenceFrequency
+  interval              Int                 @default(1)
+  dayOfMonth            Int?
+  dayOfWeek             Int?
+  startDate             DateTime
+  endDate               DateTime?
+  nextRunAt             DateTime
+  lastRunAt             DateTime?
+  autoPost              Boolean             @default(false)
+  isActive              Boolean             @default(true)
+  merchant              String?
+  notes                 String?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  transactions Transaction[]
+
+  @@index([userId, isActive, nextRunAt])
+  @@map("recurring_rules")
+}
+
+model EmailSyncState {
+  id           String          @id @default(cuid())
+  userId       String
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider     String          @default("gmail")
+  emailAddress String
+  historyId    String?
+  lastSyncedAt DateTime?
+  status       EmailSyncStatus @default(IDLE)
+  lastError    String?
+  queryFilter  String?
+  enabled      Boolean         @default(true)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  importItems EmailImportItem[]
+
+  @@unique([userId, provider, emailAddress])
+  @@index([userId, provider])
+  @@map("email_sync_states")
+}
+
+model EmailImportItem {
+  id                  String            @id @default(cuid())
+  userId              String
+  user                User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emailSyncStateId    String?
+  emailSyncState      EmailSyncState?   @relation(fields: [emailSyncStateId], references: [id], onDelete: SetNull)
+  externalMessageId   String
+  threadId            String?
+  fromAddress         String?
+  subject             String?
+  receivedAt          DateTime
+  rawSnippet          String?
+  rawPayloadHash      String?
+  hasPdfAttachment    Boolean           @default(false)
+  parserSource        ParserSource      @default(RULES)
+  parserNotes         String?
+  confidence          Decimal?          @db.Decimal(5, 4)
+  status              EmailImportStatus @default(PENDING)
+  parsedType          TransactionType?
+  parsedAmount        Decimal?          @db.Decimal(19, 4)
+  parsedCurrency      String?           @db.Char(3)
+  parsedMerchant      String?
+  parsedDescription   String?
+  parsedDate          DateTime?
+  suggestedAccountId  String?
+  suggestedCategoryId String?
+  rawExtractedJson    Json?
+  reviewedAt          DateTime?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  transaction Transaction?
+
+  @@unique([userId, externalMessageId])
+  @@index([userId, status, receivedAt(sort: Desc)])
+  @@map("email_import_items")
+}

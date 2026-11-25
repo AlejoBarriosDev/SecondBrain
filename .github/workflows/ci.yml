@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck, Lint, Test & Build
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: secondbrain
+          POSTGRES_PASSWORD: secondbrain
+          POSTGRES_DB: secondbrain_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U secondbrain -d secondbrain_test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      DATABASE_URL: postgresql://secondbrain:secondbrain@localhost:5432/secondbrain_test?schema=public
+      DIRECT_URL: postgresql://secondbrain:secondbrain@localhost:5432/secondbrain_test?schema=public
+      DATABASE_URL_TEST: postgresql://secondbrain:secondbrain@localhost:5432/secondbrain_test?schema=public
+      BETTER_AUTH_SECRET: ci-secondbrain-secret-key-at-least-32-characters-long
+      BETTER_AUTH_URL: http://localhost:3000
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      ALLOWED_EMAIL: owner@secondbrain.local
+      PASSKEY_RP_ID: localhost
+      PASSKEY_RP_NAME: SecondBrain
+      PASSKEY_ORIGIN: http://localhost:3000
+      LLM_PROVIDER: none
+      NEXT_TELEMETRY_DISABLED: "1"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client
+        run: pnpm exec prisma generate
+
+      - name: Apply Prisma migrations to test database
+        run: pnpm exec prisma migrate deploy
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Unit & Integration Tests
+        run: pnpm test
+
+      - name: Production Build
+        run: pnpm build

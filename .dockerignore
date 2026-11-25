@@ -1,0 +1,39 @@
+# Git & metadata
+.git
+.gitignore
+.github
+.agents
+
+# Environment & secrets (never bake secrets into Docker image)
+.env
+.env.*
+!.env.example
+
+# Dependencies & build caches
+node_modules
+.pnpm-store
+.next
+out
+coverage
+
+# Tests & reports
+tests
+playwright-report
+test-results
+playwright.config.ts
+vitest.config.ts
+
+# Documentation & local compose files
+README.md
+PROJECT.md
+TEST_INFRA.md
+TEST_READY.md
+docker-compose.yml
+docker-compose.prod.yml
+
+# Logs & OS artifacts
+*.log
+npm-debug.log*
+pnpm-debug.log*
+.DS_Store
+Thumbs.db

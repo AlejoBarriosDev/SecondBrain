@@ -1,10 +1,90 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --background: #09090b;
-  --foreground: #f4f4f5;
+  color-scheme: dark;
+  --bg-canvas: #09090b;
+  --bg-surface: #111114;
+  --bg-elevated: #18181b;
+  --bg-hover: #27272a;
+  --border-subtle: #27272a;
+  --border-strong: #3f3f46;
+  --text-primary: #f4f4f5;
+  --text-secondary: #a1a1aa;
+  --text-muted: #71717a;
+  --accent: #6366f1;
+  --accent-hover: #4f46e5;
+  --accent-soft: rgba(99, 102, 241, 0.16);
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+}
+
+html.light {
+  color-scheme: light;
+  --bg-canvas: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-elevated: #f1f5f9;
+  --bg-hover: #e2e8f0;
+  --border-subtle: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --accent-soft: rgba(79, 70, 229, 0.12);
+  --success: #059669;
+  --warning: #d97706;
+  --danger: #dc2626;
+}
+
+html,
+body {
+  background-color: var(--bg-canvas);
+  color: var(--text-primary);
+  overflow-x: clip;
 }
 
 .tabular-nums {
   font-variant-numeric: tabular-nums;
+}
+
+/* Surface & border semantic helpers */
+.sb-surface {
+  background-color: var(--bg-surface);
+  border-color: var(--border-subtle);
+}
+
+.sb-elevated {
+  background-color: var(--bg-elevated);
+  border-color: var(--border-subtle);
+}
+
+.sb-text-primary {
+  color: var(--text-primary);
+}
+
+.sb-text-secondary {
+  color: var(--text-secondary);
+}
+
+.sb-text-muted {
+  color: var(--text-muted);
+}
+
+.sb-input {
+  background-color: var(--bg-elevated);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.sb-input::placeholder {
+  color: var(--text-muted);
+}
+
+.sb-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }

@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/db/prisma";
+import { prisma } from "../../src/lib/db/prisma";
 
 const TABLES = [
   "audit_logs",

@@ -61,7 +61,12 @@ self.addEventListener("activate", (event) => {
 });
 
 function isStaticAsset(request, url) {
-  if (url.pathname === "/sw.js" || url.pathname.startsWith("/api/")) {
+  if (
+    url.pathname === "/sw.js" ||
+    url.pathname.startsWith("/api/") ||
+    url.pathname.startsWith("/_next/webpack-hmr") ||
+    url.pathname.includes("hot-update")
+  ) {
     return false;
   }
   if (
@@ -122,7 +127,15 @@ self.addEventListener("fetch", (event) => {
       caches.match(request).then((cached) => {
         const networkFetch = fetch(request)
           .then((response) => {
-            if (response && response.ok && response.type === "basic") {
+            const cacheControl = (
+              response?.headers.get("cache-control") || ""
+            ).toLowerCase();
+            if (
+              response &&
+              response.ok &&
+              response.type === "basic" &&
+              !cacheControl.includes("no-store")
+            ) {
               const copy = response.clone();
               caches
                 .open(STATIC_CACHE)

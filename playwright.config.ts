@@ -2,6 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  timeout: 60_000,
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
@@ -18,7 +19,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "pnpm dev",
+    command: "pnpm build && pnpm start",
     url: "http://localhost:3000/api/health",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

@@ -8,6 +8,7 @@ export default defineConfig({
     },
   },
   test: {
+    fileParallelism: false,
     projects: [
       {
         extends: true,
@@ -23,7 +24,6 @@ export default defineConfig({
           name: "integration",
           include: ["tests/integration/**/*.test.ts"],
           environment: "node",
-          fileParallelism: false,
           sequence: {
             concurrent: false,
           },

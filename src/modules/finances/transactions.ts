@@ -6,10 +6,16 @@ import {
 } from "@prisma/client";
 import { z } from "zod";
 import { prisma, type PrismaTx } from "@/lib/db/prisma";
-import { addDecimals, subDecimals, toPositiveDecimal } from "@/lib/db/decimal";
+import {
+  addDecimals,
+  assertDecimal19_4,
+  subDecimals,
+  toPositiveDecimal,
+} from "@/lib/db/decimal";
 import { lockFinancialAccounts } from "@/lib/db/locks";
 import { NotFoundError, ValidationError } from "@/lib/api/errors";
 import { recordAuditLog } from "@/modules/core/audit-logs";
+import { cleanupPolymorphicEntityRefs } from "@/modules/core/entity-cleanup";
 import {
   currencySchema,
   isoDateSchema,
@@ -206,6 +212,27 @@ export async function createTransaction(
       );
     }
 
+    const effectiveCurrency = data.currency ?? account.currency;
+    if (effectiveCurrency !== account.currency) {
+      throw new ValidationError(
+        "Transaction currency must match account currency",
+        {
+          currency: [
+            `Transaction currency (${effectiveCurrency}) must match account currency (${account.currency})`,
+          ],
+        },
+      );
+    }
+
+    const delta = computeBalanceDelta(data.type, data.status, amount);
+    const nextBalance = !delta.isZero()
+      ? assertDecimal19_4(
+          addDecimals(account.balance, delta),
+          "amount",
+          "Resulting account balance exceeds Decimal(19,4) bounds",
+        )
+      : null;
+
     if (data.categoryId) {
       const category = await tx.category.findFirst({
         where: { id: data.categoryId, userId },
@@ -227,7 +254,7 @@ export async function createTransaction(
         categoryId: data.categoryId ?? null,
         type: data.type,
         amount,
-        currency: data.currency ?? account.currency,
+        currency: effectiveCurrency,
         occurredAt,
         description: data.description,
         merchant: data.merchant ?? null,
@@ -244,15 +271,10 @@ export async function createTransaction(
       },
     });
 
-    const delta = computeBalanceDelta(
-      created.type,
-      created.status,
-      created.amount,
-    );
-    if (!delta.isZero()) {
+    if (nextBalance !== null) {
       await tx.financialAccount.update({
         where: { id: account.id },
-        data: { balance: addDecimals(account.balance, delta) },
+        data: { balance: nextBalance },
       });
     }
 
@@ -367,15 +389,17 @@ export async function updateTransaction(
       });
     }
 
-    if (
-      nextAccountId !== existing.accountId &&
-      newAccount.currency !== existing.currency
-    ) {
+    const nextCurrency = data.currency ?? existing.currency;
+    if (nextCurrency !== newAccount.currency) {
+      const field =
+        nextAccountId !== existing.accountId && data.currency === undefined
+          ? "accountId"
+          : "currency";
       throw new ValidationError(
-        "Cannot move transaction to an account with a different currency",
+        "Transaction currency must match account currency",
         {
-          accountId: [
-            `Destination account currency (${newAccount.currency}) does not match transaction currency (${existing.currency})`,
+          [field]: [
+            `Transaction currency (${nextCurrency}) does not match account currency (${newAccount.currency})`,
           ],
         },
       );
@@ -412,22 +436,37 @@ export async function updateTransaction(
     if (nextAccountId === existing.accountId) {
       const diff = subDecimals(newDelta, oldDelta);
       if (!diff.isZero()) {
+        const nextOldBalance = assertDecimal19_4(
+          addDecimals(oldAccount.balance, diff),
+          "amount",
+          "Resulting account balance exceeds Decimal(19,4) bounds",
+        );
         await tx.financialAccount.update({
           where: { id: oldAccount.id },
-          data: { balance: addDecimals(oldAccount.balance, diff) },
+          data: { balance: nextOldBalance },
         });
       }
     } else {
       if (!oldDelta.isZero()) {
+        const nextOldBalance = assertDecimal19_4(
+          subDecimals(oldAccount.balance, oldDelta),
+          "amount",
+          "Resulting source account balance exceeds Decimal(19,4) bounds",
+        );
         await tx.financialAccount.update({
           where: { id: oldAccount.id },
-          data: { balance: subDecimals(oldAccount.balance, oldDelta) },
+          data: { balance: nextOldBalance },
         });
       }
       if (!newDelta.isZero()) {
+        const nextNewBalance = assertDecimal19_4(
+          addDecimals(newAccount.balance, newDelta),
+          "amount",
+          "Resulting destination account balance exceeds Decimal(19,4) bounds",
+        );
         await tx.financialAccount.update({
           where: { id: newAccount.id },
-          data: { balance: addDecimals(newAccount.balance, newDelta) },
+          data: { balance: nextNewBalance },
         });
       }
     }
@@ -558,9 +597,14 @@ export async function voidTransaction(
       existing.amount,
     );
     if (!oldDelta.isZero()) {
+      const nextBalance = assertDecimal19_4(
+        subDecimals(account.balance, oldDelta),
+        "amount",
+        "Resulting account balance exceeds Decimal(19,4) bounds",
+      );
       await tx.financialAccount.update({
         where: { id: account.id },
-        data: { balance: subDecimals(account.balance, oldDelta) },
+        data: { balance: nextBalance },
       });
     }
 
@@ -639,19 +683,23 @@ export async function deleteTransaction(
       existing.amount,
     );
     if (!oldDelta.isZero()) {
+      const nextBalance = assertDecimal19_4(
+        subDecimals(account.balance, oldDelta),
+        "amount",
+        "Resulting account balance exceeds Decimal(19,4) bounds",
+      );
       await tx.financialAccount.update({
         where: { id: account.id },
-        data: { balance: subDecimals(account.balance, oldDelta) },
+        data: { balance: nextBalance },
       });
     }
 
-    await tx.entityTag.deleteMany({
-      where: {
-        userId,
-        entityType: EntityType.TRANSACTION,
-        entityId: existing.id,
-      },
-    });
+    await cleanupPolymorphicEntityRefs(
+      tx,
+      userId,
+      EntityType.TRANSACTION,
+      existing.id,
+    );
 
     await tx.transaction.delete({
       where: { id: existing.id },

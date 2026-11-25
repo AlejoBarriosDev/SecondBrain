@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import {
+  EntityType,
   Prisma,
   RecurrenceFrequency,
   TransactionStatus,
@@ -10,12 +11,14 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import {
   addDecimals,
+  assertDecimal19_4,
   subDecimals,
   toPositiveDecimal,
 } from "@/lib/db/decimal";
 import { lockFinancialAccounts } from "@/lib/db/locks";
 import { NotFoundError, ValidationError } from "@/lib/api/errors";
 import { recordAuditLog } from "@/modules/core/audit-logs";
+import { cleanupPolymorphicEntityRefs } from "@/modules/core/entity-cleanup";
 import {
   currencySchema,
   isoDateSchema,
@@ -101,10 +104,20 @@ export const updateRecurringRuleSchema = z.object({
 export type CreateRecurringRuleInput = z.input<typeof createRecurringRuleSchema>;
 export type UpdateRecurringRuleInput = z.input<typeof updateRecurringRuleSchema>;
 
-function addMonthsClampedUtc(date: Date, monthsToAdd: number): Date {
+function addMonthsClampedUtc(
+  date: Date,
+  monthsToAdd: number,
+  anchorDay?: number | null,
+): Date {
   const year = date.getUTCFullYear();
   const month = date.getUTCMonth();
-  const day = date.getUTCDate();
+  const desiredDay =
+    anchorDay != null &&
+    Number.isInteger(anchorDay) &&
+    anchorDay >= 1 &&
+    anchorDay <= 31
+      ? anchorDay
+      : date.getUTCDate();
   const hours = date.getUTCHours();
   const minutes = date.getUTCMinutes();
   const seconds = date.getUTCSeconds();
@@ -116,7 +129,7 @@ function addMonthsClampedUtc(date: Date, monthsToAdd: number): Date {
   const lastDayOfTargetMonth = new Date(
     Date.UTC(targetYear, targetMonth + 1, 0),
   ).getUTCDate();
-  const clampedDay = Math.min(day, lastDayOfTargetMonth);
+  const clampedDay = Math.min(desiredDay, lastDayOfTargetMonth);
 
   return new Date(
     Date.UTC(targetYear, targetMonth, clampedDay, hours, minutes, seconds, ms),
@@ -125,12 +138,13 @@ function addMonthsClampedUtc(date: Date, monthsToAdd: number): Date {
 
 /**
  * Pure deterministic UTC helper to advance a recurring rule's nextRunAt.
- * Handles month-end clamping (e.g., Jan 31 + 1 month -> Feb 28/29) and leap-year YEARLY clamping.
+ * Handles month-end clamping (e.g., Jan 31 + 1 month -> Feb 28/29 -> Mar 31) and leap-year YEARLY clamping.
  */
 export function computeNextRunAt(
   currentDate: Date,
   frequency: RecurrenceFrequency,
   interval: number,
+  dayOfMonth?: number | null,
 ): Date {
   if (!Number.isInteger(interval) || interval < 1) {
     throw new ValidationError("Recurrence interval must be a positive integer");
@@ -152,11 +166,11 @@ export function computeNextRunAt(
     case RecurrenceFrequency.BIWEEKLY:
       return new Date(Date.UTC(y, m, d + interval * 14, hh, mm, ss, ms));
     case RecurrenceFrequency.MONTHLY:
-      return addMonthsClampedUtc(currentDate, interval);
+      return addMonthsClampedUtc(currentDate, interval, dayOfMonth);
     case RecurrenceFrequency.QUARTERLY:
-      return addMonthsClampedUtc(currentDate, interval * 3);
+      return addMonthsClampedUtc(currentDate, interval * 3, dayOfMonth);
     case RecurrenceFrequency.YEARLY:
-      return addMonthsClampedUtc(currentDate, interval * 12);
+      return addMonthsClampedUtc(currentDate, interval * 12, dayOfMonth);
   }
 }
 
@@ -226,13 +240,25 @@ export async function createRecurringRule(
       }
     }
 
+    const effectiveCurrency = data.currency ?? account.currency;
+    if (effectiveCurrency !== account.currency) {
+      throw new ValidationError(
+        "Recurring rule currency must match account currency",
+        {
+          currency: [
+            `Recurring rule currency (${effectiveCurrency}) must match account currency (${account.currency})`,
+          ],
+        },
+      );
+    }
+
     const created = await tx.recurringRule.create({
       data: {
         userId,
         name: data.name,
         type: data.type,
         amount,
-        currency: data.currency ?? account.currency,
+        currency: effectiveCurrency,
         accountId: account.id,
         counterpartyAccountId,
         categoryId: data.categoryId ?? null,
@@ -350,6 +376,27 @@ export async function updateRecurringRule(
       }
     }
 
+    const nextCurrency = data.currency ?? existing.currency;
+    if (nextCurrency !== nextAccount.currency) {
+      throw new ValidationError(
+        "Recurring rule currency must match account currency",
+        {
+          currency: [
+            `Recurring rule currency (${nextCurrency}) must match account currency (${nextAccount.currency})`,
+          ],
+        },
+      );
+    }
+
+    const nextStartDate = data.startDate ?? existing.startDate;
+    const nextEndDate =
+      data.endDate !== undefined ? data.endDate : existing.endDate;
+    if (nextEndDate && nextEndDate < nextStartDate) {
+      throw new ValidationError("endDate cannot be earlier than startDate", {
+        endDate: ["endDate cannot be earlier than startDate"],
+      });
+    }
+
     const updated = await tx.recurringRule.update({
       where: { id: existing.id },
       data: {
@@ -413,6 +460,13 @@ export async function deleteRecurringRule(
       throw new NotFoundError("Recurring rule not found");
     }
 
+    await cleanupPolymorphicEntityRefs(
+      tx,
+      userId,
+      EntityType.RECURRING_RULE,
+      existing.id,
+    );
+
     await tx.recurringRule.delete({
       where: { id: existing.id },
     });
@@ -443,6 +497,8 @@ interface LockedRecurringRuleRow {
   categoryId: string | null;
   frequency: RecurrenceFrequency;
   interval: number;
+  dayOfMonth: number | null;
+  startDate: Date;
   endDate: Date | null;
   nextRunAt: Date;
   autoPost: boolean;
@@ -492,7 +548,8 @@ export async function runDueRecurringRules(
         const lockedRows = await tx.$queryRaw<LockedRecurringRuleRow[]>`
           SELECT id, "userId", name, type, amount, currency, "accountId",
                  "counterpartyAccountId", "categoryId", frequency, interval,
-                 "endDate", "nextRunAt", "autoPost", "isActive", merchant, notes
+                 "dayOfMonth", "startDate", "endDate", "nextRunAt", "autoPost",
+                 "isActive", merchant, notes
           FROM "recurring_rules"
           WHERE id = ${candidate.id}
           FOR UPDATE
@@ -618,13 +675,23 @@ export async function runDueRecurringRules(
           createdIds.push(outTx.id, inTx.id);
 
           if (rule.autoPost) {
+            const nextFromBalance = assertDecimal19_4(
+              subDecimals(fromAccount.balance, amount),
+              "amount",
+              "Resulting source account balance exceeds Decimal(19,4) bounds",
+            );
+            const nextToBalance = assertDecimal19_4(
+              addDecimals(toAccount.balance, amount),
+              "amount",
+              "Resulting destination account balance exceeds Decimal(19,4) bounds",
+            );
             await tx.financialAccount.update({
               where: { id: fromAccount.id },
-              data: { balance: subDecimals(fromAccount.balance, amount) },
+              data: { balance: nextFromBalance },
             });
             await tx.financialAccount.update({
               where: { id: toAccount.id },
-              data: { balance: addDecimals(toAccount.balance, amount) },
+              data: { balance: nextToBalance },
             });
           }
         } else {
@@ -662,17 +729,25 @@ export async function runDueRecurringRules(
 
           const delta = computeBalanceDelta(rule.type, txStatus, amount);
           if (!delta.isZero()) {
+            const nextBalance = assertDecimal19_4(
+              addDecimals(account.balance, delta),
+              "amount",
+              "Resulting account balance exceeds Decimal(19,4) bounds",
+            );
             await tx.financialAccount.update({
               where: { id: account.id },
-              data: { balance: addDecimals(account.balance, delta) },
+              data: { balance: nextBalance },
             });
           }
         }
 
+        const anchorDay =
+          rule.dayOfMonth ?? new Date(rule.startDate).getUTCDate();
         const newNextRunAt = computeNextRunAt(
           ruleNextRunAt,
           rule.frequency,
           rule.interval,
+          anchorDay,
         );
         const stillActive = !(ruleEndDate && newNextRunAt > ruleEndDate);
 

@@ -54,7 +54,7 @@ export function normalizeAmountString(
   raw: string,
   currencyHint?: string | null,
 ): string | null {
-  if (!raw || typeof raw !== "string") {
+  if (!raw || typeof raw !== "string" || raw.length > 128) {
     return null;
   }
 
@@ -65,12 +65,16 @@ export function normalizeAmountString(
     .replace(/US\$|U\$S|[$€£\s]/g, "")
     .replace(/^[+-]/, "");
 
-  if (!cleaned || !/^\d[\d.,]*$/.test(cleaned)) {
+  if (!cleaned || cleaned.length > 32 || !/^\d[\d.,]*$/.test(cleaned)) {
     return null;
   }
 
-  // Trim trailing punctuation (e.g. sentence-ending period "45.50.")
-  cleaned = cleaned.replace(/[.,]+$/, "");
+  // Trim trailing punctuation (e.g. sentence-ending period "45.50.") in linear time
+  let end = cleaned.length;
+  while (end > 0 && (cleaned[end - 1] === "." || cleaned[end - 1] === ",")) {
+    end -= 1;
+  }
+  cleaned = cleaned.slice(0, end);
   if (!cleaned) {
     return null;
   }
@@ -225,7 +229,7 @@ function extractAmountAndCurrency(
 ): AmountMatch | null {
   // 1. Explicit ISO code before amount: "USD 45.50", "COP 50.000", "EUR 12,50"
   const codeBeforeRegex =
-    /\b(USD|EUR|COP|MXN|ARS|CLP|PEN|GBP)\s*\$?\s*(\d[\d.,]*)/gi;
+    /\b(USD|EUR|COP|MXN|ARS|CLP|PEN|GBP)(?:\s{0,4}\$)?\s{0,4}(\d[\d.,]{0,24})/gi;
   for (const match of text.matchAll(codeBeforeRegex)) {
     const code = match[1]?.toUpperCase() ?? null;
     const raw = match[2] ?? "";
@@ -242,7 +246,7 @@ function extractAmountAndCurrency(
 
   // 2. Symbol + amount + optional trailing ISO code: "$45.50 USD", "€12,50", "US$ 80.00"
   const symbolRegex =
-    /(US\$|U\$S|€|£|\$)\s*(\d[\d.,]*)(?:\s*(USD|EUR|COP|MXN|ARS|CLP|PEN|GBP)\b)?/gi;
+    /(US\$|U\$S|€|£|\$)\s{0,4}(\d[\d.,]{0,24})(?:\s{0,4}(USD|EUR|COP|MXN|ARS|CLP|PEN|GBP)\b)?/gi;
   for (const match of text.matchAll(symbolRegex)) {
     const sym = match[1];
     const raw = match[2] ?? "";
@@ -266,7 +270,7 @@ function extractAmountAndCurrency(
 
   // 3. Amount followed by ISO code: "45.50 USD", "1.234,56 EUR"
   const codeAfterRegex =
-    /(\d[\d.,]*)\s*(USD|EUR|COP|MXN|ARS|CLP|PEN|GBP)\b/gi;
+    /\b(\d[\d.,]{0,24})\s{0,4}(USD|EUR|COP|MXN|ARS|CLP|PEN|GBP)\b/gi;
   for (const match of text.matchAll(codeAfterRegex)) {
     const raw = match[1] ?? "";
     const code = match[2]?.toUpperCase() ?? null;
@@ -283,7 +287,7 @@ function extractAmountAndCurrency(
 
   // 4. Keyword-anchored amount: "Monto: 45.50", "Total: 120.00"
   const keywordRegex =
-    /\b(?:amount|total|monto|valor|importe)\s*[:\-]\s*(\d[\d.,]*)/gi;
+    /\b(?:amount|total|monto|valor|importe)\s{0,4}[:\-]\s{0,4}(\d[\d.,]{0,24})/gi;
   for (const match of text.matchAll(keywordRegex)) {
     const raw = match[1] ?? "";
     const fallbackCurr =
@@ -304,12 +308,39 @@ function extractAmountAndCurrency(
   return null;
 }
 
-function cleanMerchant(raw: string): string | null {
-  const cleaned = raw
+const MERCHANT_EDGE_CHARS = new Set([
+  " ",
+  "\t",
+  "\r",
+  "\n",
+  "-",
+  ":",
+  ".",
+  ",",
+  ";",
+]);
+
+function stripMerchantEdgeChars(input: string): string {
+  let start = 0;
+  let end = input.length;
+  while (start < end && MERCHANT_EDGE_CHARS.has(input[start] ?? "")) {
+    start += 1;
+  }
+  while (end > start && MERCHANT_EDGE_CHARS.has(input[end - 1] ?? "")) {
+    end -= 1;
+  }
+  return input.slice(start, end);
+}
+
+export function cleanMerchant(raw: string): string | null {
+  const edgeTrimmed = stripMerchantEdgeChars(raw);
+  if (edgeTrimmed.length < 2 || edgeTrimmed.length > 500) {
+    return null;
+  }
+
+  const cleaned = edgeTrimmed
     .replace(/[\r\n\t]+/g, " ")
-    .replace(/\s{2,}/g, " ")
-    .replace(/^[\s\-:.,;]+|[\s\-:.,;]+$/g, "")
-    .trim();
+    .replace(/\s{2,}/g, " ");
 
   if (cleaned.length < 2 || cleaned.length > 120) {
     return null;
@@ -537,10 +568,13 @@ export function parsePdfStatementRows(
   const rows: PdfStatementRow[] = [];
   const lines = pdfText.split(/\r?\n/);
   const rowRegex =
-    /^\s*((?:20\d{2}-\d{2}-\d{2})|(?:\d{2}[\/\-]\d{2}[\/\-]20\d{2}))\s+(.+?)\s+([+-]?(?:(?:USD|EUR|COP|MXN|ARS|CLP|PEN|GBP)\s*)?[$€£]?\s*\d[\d.,]*(?:\s*(?:USD|EUR|COP|MXN|ARS|CLP|PEN|GBP))?)\s*$/i;
+    /^((?:20\d{2}-\d{2}-\d{2})|(?:\d{2}[\/\-]\d{2}[\/\-]20\d{2})) (.{1,255}?) ([+-]?(?:(?:USD|EUR|COP|MXN|ARS|CLP|PEN|GBP) )?[$€£]? ?\d[\d.,]{0,24}(?: (?:USD|EUR|COP|MXN|ARS|CLP|PEN|GBP))?)$/i;
 
   for (const line of lines) {
-    const match = line.match(rowRegex);
+    const normalizedLine = line.trim().replace(/\s+/g, " ");
+    if (!normalizedLine || normalizedLine.length > 500) continue;
+
+    const match = normalizedLine.match(rowRegex);
     if (!match?.[1] || !match[2] || !match[3]) continue;
 
     const date = extractDate(match[1]);

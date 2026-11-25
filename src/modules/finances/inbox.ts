@@ -16,6 +16,7 @@ import {
 } from "@/lib/api/errors";
 import {
   addDecimals,
+  assertDecimal19_4,
   formatDecimal,
   toPositiveDecimal,
 } from "@/lib/db/decimal";
@@ -39,7 +40,6 @@ import {
   type RequestMeta,
 } from "./types";
 
-const MAX_DECIMAL_19_4 = new Prisma.Decimal("999999999999999.9999");
 const MAX_PDF_BASE64_CHARS = 14_200_000;
 
 export interface SerializedEmailImportItem {
@@ -354,6 +354,7 @@ export async function updateInboxItem(
   userId: string,
   itemId: string,
   rawInput: UpdateInboxItemInput,
+  meta?: RequestMeta,
 ): Promise<SerializedEmailImportItem> {
   const input = updateInboxItemSchema.parse(rawInput);
 
@@ -364,6 +365,10 @@ export async function updateInboxItem(
         `Cannot edit inbox item in ${locked.status} status`,
       );
     }
+
+    const existing = await tx.emailImportItem.findUniqueOrThrow({
+      where: { id: itemId },
+    });
 
     if (input.suggestedAccountId) {
       const acc = await tx.financialAccount.findFirst({
@@ -428,7 +433,21 @@ export async function updateInboxItem(
       },
     });
 
-    return serializeEmailImportItem(updated);
+    const serializedBefore = serializeEmailImportItem(existing);
+    const serializedAfter = serializeEmailImportItem(updated);
+
+    await recordAuditLog(tx, {
+      userId,
+      action: "INBOX_ITEM_UPDATED",
+      entityType: "EMAIL_IMPORT_ITEM",
+      entityId: updated.id,
+      before: serializedBefore,
+      after: serializedAfter,
+      ipAddress: meta?.ipAddress,
+      userAgent: meta?.userAgent,
+    });
+
+    return serializedAfter;
   });
 }
 
@@ -532,6 +551,17 @@ export async function confirmInboxItem(
       account.currency
     ).toUpperCase();
 
+    if (currency !== account.currency) {
+      throw new ValidationError(
+        "Transaction currency must match target account currency",
+        {
+          currency: [
+            `Transaction currency (${currency}) must match account currency (${account.currency})`,
+          ],
+        },
+      );
+    }
+
     if (categoryId) {
       const cat = await tx.category.findFirst({
         where: { id: categoryId, userId },
@@ -574,17 +604,11 @@ export async function confirmInboxItem(
       TransactionStatus.POSTED,
       amountDec,
     );
-    const nextBalance = addDecimals(account.balance, delta);
-    if (nextBalance.abs().gt(MAX_DECIMAL_19_4)) {
-      throw new ValidationError(
-        "Resulting account balance exceeds Decimal(19,4) bounds",
-        {
-          amount: [
-            "Resulting account balance exceeds maximum allowed precision",
-          ],
-        },
-      );
-    }
+    const nextBalance = assertDecimal19_4(
+      addDecimals(account.balance, delta),
+      "amount",
+      "Resulting account balance exceeds Decimal(19,4) bounds",
+    );
 
     await tx.financialAccount.update({
       where: { id: accountId },

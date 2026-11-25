@@ -20,19 +20,40 @@ export async function GET(request: NextRequest) {
     const { searchParams } = request.nextUrl;
 
     const rawEntityType = searchParams.get("entityType");
-    const entityId = searchParams.get("entityId");
+    const rawEntityId = searchParams.get("entityId");
     const rawSourceType = searchParams.get("sourceType");
-    const sourceId = searchParams.get("sourceId");
+    const rawSourceId = searchParams.get("sourceId");
+
+    let entityType: EntityType | undefined;
+    let entityId: string | undefined;
+    if (rawEntityType !== null || rawEntityId !== null) {
+      entityType = entityTypeSchema.parse(rawEntityType ?? "");
+      entityId = z
+        .string()
+        .trim()
+        .min(1, "entityId is required when filtering by entityType")
+        .parse(rawEntityId ?? "");
+    }
+
+    let sourceType: EntityType | undefined;
+    if (rawSourceType !== null) {
+      sourceType = entityTypeSchema.parse(rawSourceType);
+    }
+
+    let sourceId: string | undefined;
+    if (rawSourceId !== null) {
+      sourceId = z
+        .string()
+        .trim()
+        .min(1, "sourceId must not be empty")
+        .parse(rawSourceId);
+    }
 
     const links = await listEntityLinks(user.id, {
-      entityType: rawEntityType
-        ? entityTypeSchema.parse(rawEntityType)
-        : undefined,
-      entityId: entityId ?? undefined,
-      sourceType: rawSourceType
-        ? entityTypeSchema.parse(rawSourceType)
-        : undefined,
-      sourceId: sourceId ?? undefined,
+      entityType,
+      entityId,
+      sourceType,
+      sourceId,
     });
 
     return jsonOk(links);

@@ -1,6 +1,10 @@
 import { NextRequest } from "next/server";
 import { requireSession } from "@/lib/auth/session";
-import { handleApiError, jsonOk } from "@/lib/api/response";
+import {
+  handleApiError,
+  jsonOk,
+  parseOptionalJsonBody,
+} from "@/lib/api/response";
 import { confirmInboxItem } from "@/modules/finances/inbox";
 import { extractRequestMeta } from "@/modules/finances/types";
 
@@ -13,11 +17,11 @@ export async function POST(
   try {
     const { user } = await requireSession(request.headers);
     const { id } = await context.params;
-    const rawBody = await request.json().catch(() => ({}));
+    const rawBody = await parseOptionalJsonBody(request);
     const result = await confirmInboxItem(
       user.id,
       id,
-      rawBody ?? {},
+      (rawBody ?? {}) as Parameters<typeof confirmInboxItem>[2],
       extractRequestMeta(request.headers),
     );
     return jsonOk(result, 200);

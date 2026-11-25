@@ -153,7 +153,7 @@ Every Survey feature from `explorer_survey_1`, `explorer_survey_2`, and `explore
 | M4 | Command Center UI/UX & All App Pages | `UI-01..04` (all interactive pages, dark-first Bento Grid, mobile bottom nav, Passkey & Inbox UI) + commit & push to `develop` | M3 | DONE (`85450ac`) | `daf544681d72c0cdcf10e54104998e5b` |
 | M5 | PWA & Production Deployment Packaging | `PWA-01..03`, `INFRA-06,07,10` (`manifest.ts`, `sw.js`, `/offline`, icons, Dockerfile, `docker-compose.prod.yml`, CI, README) + commit & push to `develop` | M4 | DONE (`8a55d02`) | `b8562c10f4949f8ef2023fd086defbe2` |
 | E2E | E2E Testing Track (Parallel) | Opaque-box 4-tier E2E test suite (`TEST_INFRA.md` → `tests/e2e/` → `TEST_READY.md`) | M1 (scaffold) | DONE (`TEST_READY.md`, 33 tests) | `0473c509ea95c42f2f46a2eccc2ff4bc` |
-| M6 | Final Milestone: E2E Pass (Tiers 1–4) & Tier 5 Adversarial | Phase 1: 100% pass Tiers 1–4; Phase 2: Tier 5 white-box adversarial hardening + final push to `develop` | M5, E2E | IN_PROGRESS (Phase 1 DONE: 33/33 E2E Tiers 1–4 PASS; Phase 2 Tier 5 pending) | `82577bc0856d5c8e309b265a2882ea3a` |
+| M6 | Final Milestone: E2E Pass (Tiers 1–4) & Tier 5 Adversarial | Phase 1: 100% pass Tiers 1–4; Phase 2: Tier 5 white-box adversarial hardening + final push to `develop` | M5, E2E | DONE (Phase 1: 33/33 E2E PASS; Phase 2: Tier 5 Adversarial PASS) | `82577bc0856d5c8e309b265a2882ea3a` |
 
 ## Interface Contracts
 

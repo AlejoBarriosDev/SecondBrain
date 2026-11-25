@@ -1,8 +1,9 @@
-import { TransactionType } from "@prisma/client";
+import { EntityType, TransactionType } from "@prisma/client";
 import { z } from "zod";
 import { prisma, type PrismaTx } from "@/lib/db/prisma";
 import { NotFoundError, ValidationError } from "@/lib/api/errors";
 import { recordAuditLog } from "@/modules/core/audit-logs";
+import { cleanupPolymorphicEntityRefs } from "@/modules/core/entity-cleanup";
 import { hexColorSchema, type RequestMeta } from "./types";
 import { serializeCategory, type SerializedCategory } from "./serializers";
 
@@ -246,6 +247,27 @@ export async function deleteCategory(
     if (!existing) {
       throw new NotFoundError("Category not found");
     }
+
+    const cascadedBudgets = await tx.budget.findMany({
+      where: { userId, categoryId: existing.id },
+      select: { id: true },
+    });
+
+    if (cascadedBudgets.length > 0) {
+      await cleanupPolymorphicEntityRefs(
+        tx,
+        userId,
+        EntityType.BUDGET,
+        cascadedBudgets.map((b) => b.id),
+      );
+    }
+
+    await cleanupPolymorphicEntityRefs(
+      tx,
+      userId,
+      EntityType.CATEGORY,
+      existing.id,
+    );
 
     await tx.category.delete({
       where: { id: existing.id },

@@ -134,7 +134,8 @@ self.addEventListener("fetch", (event) => {
               response &&
               response.ok &&
               response.type === "basic" &&
-              !cacheControl.includes("no-store")
+              !cacheControl.includes("no-store") &&
+              !cacheControl.includes("private")
             ) {
               const copy = response.clone();
               caches
@@ -144,7 +145,7 @@ self.addEventListener("fetch", (event) => {
             }
             return response;
           })
-          .catch(() => cached);
+          .catch(() => cached || Response.error());
 
         return cached || networkFetch;
       }),

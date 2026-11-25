@@ -1,4 +1,9 @@
-import { Prisma, TransactionStatus, TransactionType } from "@prisma/client";
+import {
+  EntityType,
+  Prisma,
+  TransactionStatus,
+  TransactionType,
+} from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import {
@@ -8,6 +13,7 @@ import {
 } from "@/lib/db/decimal";
 import { NotFoundError, ValidationError } from "@/lib/api/errors";
 import { recordAuditLog } from "@/modules/core/audit-logs";
+import { cleanupPolymorphicEntityRefs } from "@/modules/core/entity-cleanup";
 import {
   currencySchema,
   positiveDecimalStringSchema,
@@ -239,6 +245,13 @@ export async function deleteBudget(
     if (!existing) {
       throw new NotFoundError("Budget not found");
     }
+
+    await cleanupPolymorphicEntityRefs(
+      tx,
+      userId,
+      EntityType.BUDGET,
+      existing.id,
+    );
 
     await tx.budget.delete({
       where: { id: existing.id },

@@ -17,6 +17,16 @@ export function jsonPaginated<T>(data: T[], meta: PaginationMeta, status = 200) 
   return NextResponse.json({ ok: true as const, data, meta }, { status });
 }
 
+export async function parseOptionalJsonBody(
+  request: Pick<Request, "text">,
+): Promise<unknown> {
+  const text = await request.text();
+  if (text.trim().length === 0) {
+    return {};
+  }
+  return JSON.parse(text);
+}
+
 export function jsonError(
   code: string,
   message: string,

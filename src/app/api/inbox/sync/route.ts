@@ -1,7 +1,11 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { requireSession } from "@/lib/auth/session";
-import { handleApiError, jsonOk } from "@/lib/api/response";
+import {
+  handleApiError,
+  jsonOk,
+  parseOptionalJsonBody,
+} from "@/lib/api/response";
 import { GmailSyncService } from "@/modules/finances/gmail-sync";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +19,7 @@ const syncBodySchema = z.object({
 export async function POST(request: NextRequest) {
   try {
     const { user } = await requireSession(request.headers);
-    const rawBody = await request.json().catch(() => ({}));
+    const rawBody = await parseOptionalJsonBody(request);
     const options = syncBodySchema.parse(rawBody ?? {});
 
     const service = new GmailSyncService();

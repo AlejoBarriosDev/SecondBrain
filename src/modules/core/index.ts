@@ -4,4 +4,5 @@ export * from "./settings";
 export * from "./modules";
 export * from "./tags";
 export * from "./entity-links";
+export * from "./entity-cleanup";
 export * from "./attachments";

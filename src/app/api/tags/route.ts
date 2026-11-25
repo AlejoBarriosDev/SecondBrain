@@ -21,10 +21,15 @@ export async function GET(request: NextRequest) {
     const { user } = await requireSession(request.headers);
     const { searchParams } = request.nextUrl;
     const rawEntityType = searchParams.get("entityType");
-    const entityId = searchParams.get("entityId");
+    const rawEntityId = searchParams.get("entityId");
 
-    if (rawEntityType && entityId) {
-      const entityType = entityTypeSchema.parse(rawEntityType);
+    if (rawEntityType !== null || rawEntityId !== null) {
+      const entityType = entityTypeSchema.parse(rawEntityType ?? "");
+      const entityId = z
+        .string()
+        .trim()
+        .min(1, "entityId is required when filtering by entityType")
+        .parse(rawEntityId ?? "");
       const tags = await listTags(user.id, { entityType, entityId });
       return jsonOk(tags);
     }

@@ -10,6 +10,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import {
   addDecimals,
+  assertDecimal19_4,
+  assertDecimal19_8,
   formatDecimal,
   subDecimals,
   toPositiveDecimal,
@@ -17,6 +19,7 @@ import {
 import { lockFinancialAccounts } from "@/lib/db/locks";
 import { NotFoundError, ValidationError } from "@/lib/api/errors";
 import { recordAuditLog } from "@/modules/core/audit-logs";
+import { cleanupPolymorphicEntityRefs } from "@/modules/core/entity-cleanup";
 import {
   exchangeRateStringSchema,
   isoDateSchema,
@@ -84,26 +87,33 @@ export function computeTransferInAmount(
   options?: { toAmount?: string; exchangeRate?: string },
 ): { inAmount: Prisma.Decimal; exchangeRate: Prisma.Decimal | null } {
   if (options?.toAmount !== undefined) {
-    const inAmount = toPositiveDecimal(options.toAmount);
+    const inAmount = assertDecimal19_4(
+      toPositiveDecimal(options.toAmount),
+      "toAmount",
+    );
     const rate =
       options.exchangeRate !== undefined
-        ? new Prisma.Decimal(options.exchangeRate)
+        ? assertDecimal19_8(new Prisma.Decimal(options.exchangeRate))
         : fromCurrency !== toCurrency || !inAmount.equals(outAmount)
-          ? inAmount
-              .div(outAmount)
-              .toDecimalPlaces(8, Prisma.Decimal.ROUND_HALF_UP)
+          ? assertDecimal19_8(
+              inAmount
+                .div(outAmount)
+                .toDecimalPlaces(8, Prisma.Decimal.ROUND_HALF_UP),
+            )
           : null;
     return { inAmount, exchangeRate: rate };
   }
 
   if (options?.exchangeRate !== undefined) {
-    const rate = new Prisma.Decimal(options.exchangeRate);
+    const rate = assertDecimal19_8(new Prisma.Decimal(options.exchangeRate));
     if (!rate.isFinite() || rate.lte(0)) {
       throw new ValidationError("Exchange rate must be greater than zero");
     }
-    const inAmount = outAmount
-      .mul(rate)
-      .toDecimalPlaces(4, Prisma.Decimal.ROUND_HALF_UP);
+    const inAmount = assertDecimal19_4(
+      outAmount.mul(rate).toDecimalPlaces(4, Prisma.Decimal.ROUND_HALF_UP),
+      "toAmount",
+      "Converted transfer amount exceeds Decimal(19,4) bounds",
+    );
     if (inAmount.lte(0)) {
       throw new ValidationError("Converted transfer amount must be greater than zero");
     }
@@ -221,8 +231,16 @@ export async function createTransfer(
       }),
     ]);
 
-    const nextFromBalance = subDecimals(fromAccount.balance, outAmount);
-    const nextToBalance = addDecimals(toAccount.balance, inAmount);
+    const nextFromBalance = assertDecimal19_4(
+      subDecimals(fromAccount.balance, outAmount),
+      "amount",
+      "Resulting source account balance exceeds Decimal(19,4) bounds",
+    );
+    const nextToBalance = assertDecimal19_4(
+      addDecimals(toAccount.balance, inAmount),
+      "amount",
+      "Resulting destination account balance exceeds Decimal(19,4) bounds",
+    );
 
     await tx.financialAccount.update({
       where: { id: fromAccount.id },
@@ -319,22 +337,26 @@ export async function deleteTransfer(
     for (const [accountId, adjustment] of balanceAdjustments.entries()) {
       const account = locked.get(accountId);
       if (account && !adjustment.isZero()) {
+        const nextBalance = assertDecimal19_4(
+          addDecimals(account.balance, adjustment),
+          "amount",
+          "Resulting account balance exceeds Decimal(19,4) bounds",
+        );
         await tx.financialAccount.update({
           where: { id: accountId },
-          data: { balance: addDecimals(account.balance, adjustment) },
+          data: { balance: nextBalance },
         });
       }
     }
 
     const legIds = legs.map((l) => l.id);
 
-    await tx.entityTag.deleteMany({
-      where: {
-        userId,
-        entityType: EntityType.TRANSACTION,
-        entityId: { in: legIds },
-      },
-    });
+    await cleanupPolymorphicEntityRefs(
+      tx,
+      userId,
+      EntityType.TRANSACTION,
+      legIds,
+    );
 
     await tx.transaction.deleteMany({
       where: {

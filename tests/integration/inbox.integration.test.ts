@@ -404,6 +404,7 @@ describe("Review Inbox API & Atomic Concurrency Integration Tests (Real Postgres
       orderBy: { createdAt: "asc" },
     });
     expect(audits.map((a) => a.action)).toEqual([
+      "INBOX_ITEM_UPDATED",
       "INBOX_ITEM_CONFIRMED",
       "INBOX_ITEM_REJECTED",
     ]);

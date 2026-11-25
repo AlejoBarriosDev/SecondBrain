@@ -730,6 +730,7 @@ describe("Finance Engine & Ledger API (Real Postgres Integration)", () => {
     const dash = (await dashRes.json()).data;
     expect(dash.pendingInboxCount).toBe(1);
     // Net worth: bank (875) + card (-100) = 775.0000
+    expect(dash.netWorth).toBe("775.0000");
     expect(dash.netWorthByCurrency).toEqual([
       {
         currency: "USD",

@@ -41,6 +41,7 @@ export interface CurrencyCashflow {
 }
 
 export interface FinanceDashboardData {
+  netWorth: string;
   accounts: SerializedFinancialAccount[];
   netWorthByCurrency: CurrencyNetWorth[];
   monthlyCashflow: {
@@ -117,13 +118,15 @@ export async function getFinanceDashboard(
     }),
   ]);
 
-  // Compute Net Worth by Currency using Prisma.Decimal
+  // Compute Net Worth (overall and by Currency) using Prisma.Decimal
+  let totalNetWorth = new Prisma.Decimal(0);
   const netWorthMap = new Map<
     string,
     { total: Prisma.Decimal; assets: Prisma.Decimal; liabilities: Prisma.Decimal }
   >();
 
   for (const acc of activeAccounts) {
+    totalNetWorth = addDecimals(totalNetWorth, acc.balance);
     const entry = netWorthMap.get(acc.currency) ?? {
       total: new Prisma.Decimal(0),
       assets: new Prisma.Decimal(0),
@@ -197,6 +200,7 @@ export async function getFinanceDashboard(
   }
 
   return {
+    netWorth: formatDecimal(totalNetWorth),
     accounts: activeAccounts.map(serializeAccount),
     netWorthByCurrency,
     monthlyCashflow: {

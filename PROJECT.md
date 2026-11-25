@@ -148,12 +148,12 @@ Every Survey feature from `explorer_survey_1`, `explorer_survey_2`, and `explore
 | # | Name | Scope | Dependencies | Status | Sub-Orch Conv ID |
 |---|------|-------|--------------|--------|------------------|
 | M1 | Foundation, Schema, Auth & Core | `INFRA-01..05,08,09`, `F-AUTH-01..04`, `F-CORE-01` + git `develop` init commit & push | none | DONE (`9e49d3b`) | `88ea6a72f2090fc970a03b34e6cabec6` |
-| M2 | Core Finance Engine & Ledger API | `F-FIN-01..05` + real-Postgres unit/integration tests + commit & push to `develop` | M1 | IN_PROGRESS | `809a1717fde113fd6bf9b93fae21c440` |
-| M3 | Gmail, Hybrid Parser & Review Inbox API | `GMAIL-01..03`, `PARSE-01..03`, `F-FIN-06`, `INBOX-01..03` + unit/integration tests + commit & push to `develop` | M2 | PLANNED | - |
-| M4 | Command Center UI/UX & All App Pages | `UI-01..04` (all interactive pages, dark-first Bento Grid, mobile bottom nav, Passkey & Inbox UI) + commit & push to `develop` | M3 | PLANNED | - |
-| M5 | PWA & Production Deployment Packaging | `PWA-01..03`, `INFRA-06,07,10` (`manifest.ts`, `sw.js`, `/offline`, icons, Dockerfile, `docker-compose.prod.yml`, CI, README) + commit & push to `develop` | M4 | PLANNED | - |
+| M2 | Core Finance Engine & Ledger API | `F-FIN-01..05` + real-Postgres unit/integration tests + commit & push to `develop` | M1 | DONE (`243713a`; E2E `bb62b5d`) | `809a1717fde113fd6bf9b93fae21c440` |
+| M3 | Gmail, Hybrid Parser & Review Inbox API | `GMAIL-01..03`, `PARSE-01..03`, `F-FIN-06`, `INBOX-01..03` + unit/integration tests + commit & push to `develop` | M2 | DONE (`82f53f1`) | `8ee783a1611f39138438d2cb80d93d76` |
+| M4 | Command Center UI/UX & All App Pages | `UI-01..04` (all interactive pages, dark-first Bento Grid, mobile bottom nav, Passkey & Inbox UI) + commit & push to `develop` | M3 | DONE (`85450ac`) | `daf544681d72c0cdcf10e54104998e5b` |
+| M5 | PWA & Production Deployment Packaging | `PWA-01..03`, `INFRA-06,07,10` (`manifest.ts`, `sw.js`, `/offline`, icons, Dockerfile, `docker-compose.prod.yml`, CI, README) + commit & push to `develop` | M4 | DONE (`8a55d02`) | `b8562c10f4949f8ef2023fd086defbe2` |
 | E2E | E2E Testing Track (Parallel) | Opaque-box 4-tier E2E test suite (`TEST_INFRA.md` → `tests/e2e/` → `TEST_READY.md`) | M1 (scaffold) | DONE (`TEST_READY.md`, 33 tests) | `0473c509ea95c42f2f46a2eccc2ff4bc` |
-| M6 | Final Milestone: E2E Pass (Tiers 1–4) & Tier 5 Adversarial | Phase 1: 100% pass Tiers 1–4; Phase 2: Tier 5 white-box adversarial hardening + final push to `develop` | M5, E2E | PLANNED | - |
+| M6 | Final Milestone: E2E Pass (Tiers 1–4) & Tier 5 Adversarial | Phase 1: 100% pass Tiers 1–4; Phase 2: Tier 5 white-box adversarial hardening + final push to `develop` | M5, E2E | IN_PROGRESS (Tiers 1–3 DONE 27/27; Tier 4 pending) | `82577bc0856d5c8e309b265a2882ea3a` |
 
 ## Interface Contracts
 
